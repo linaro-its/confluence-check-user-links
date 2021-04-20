@@ -202,7 +202,6 @@ def check_page(space, page_name, page_link, server_uri, auth):
     if post_result.status_code != 200:
         print(post_result.text)
         sys.exit("Update failed")
-    sys.exit("Done")
 
 load_config()
 server_auth = get_auth("server_user", "server_pw")
