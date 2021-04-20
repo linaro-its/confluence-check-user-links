@@ -1,0 +1,9 @@
+{
+    // SOURCE
+    "server_uri": "https://collaborate.linaro.org",
+    "server_user": "<your email address>",
+    "server_pw": "<your password>",
+
+    // SPACE
+    "space_key": "<space key>"
+}
