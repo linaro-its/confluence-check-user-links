@@ -23,6 +23,11 @@ CONFIG = None
 # <ac:plain-text-link-body><![CDATA[Bill Fischofer]]></ac:plain-text-link-body>
 # </ac:link>
 #
+# or:
+# <ac:link><ri:user ri:userkey="8a09c088423dfa2b01423dfac8ba01d2" />
+# <ac:link-body><span style=\"color: rgb(0,0,0);\">Vicky Janicki</span></ac:link-body>
+# </ac:link>
+#
 MACRO_START = (
     '<ac:link><ri:user ri:userkey='
 )
@@ -31,12 +36,20 @@ MACRO_END_1 = (
     '/></ac:link>'
 )
 
-MACRO_END_2 = (
+MACRO_END_2A = (
     '/><ac:plain-text-link-body><![CDATA['
 )
 
-MACRO_END_3 = (
+MACRO_END_2B = (
     ']]></ac:plain-text-link-body></ac:link>'
+)
+
+MACRO_END_3A = (
+    '/><ac:link-body>'
+)
+
+MACRO_END_3B = (
+    '</ac:link-body></ac:link>'
 )
 
 def load_config():
@@ -104,9 +117,81 @@ def lookup_user(reference, server_uri, auth):
         result = requests.get(url, auth=auth)
     except Exception as exc:
         sys.exit("Exception while accessing %s: %s" % (url, exc))
+    if result.status_code != 200:
+        print(result.text)
+        sys.exit("Failed to retrieve user '%s'" % reference)
     data = result.json()
     display_name = data["displayName"]
     return display_name, "Unknown User" not in display_name
+
+def process_link_type_1(buffer, body, server_uri, auth):
+    """ Process the first type of link """
+    link_end_1 = body.find(MACRO_END_1)
+    reference = body[:link_end_1]
+    name, active_user = lookup_user(reference, server_uri, auth)
+    if active_user:
+        # Copy the entire macro over ...
+        buffer.write(MACRO_START)
+        buffer.write(body[:link_end_1 + len(MACRO_END_1)])
+    # Remove from the body
+    body = body[link_end_1 + len(MACRO_END_1):]
+    return body, name, active_user
+
+def process_link_type_2(buffer, body, server_uri, auth):
+    """ Process the second type of link """
+    link_end_2a = body.find(MACRO_END_2A)
+    link_end_2b = body.find(MACRO_END_2B)
+    reference = body[:link_end_2a]
+    name, active_user = lookup_user(reference, server_uri, auth)
+    if active_user:
+        # Copy the entire macro over ...
+        buffer.write(MACRO_START)
+        buffer.write(body[:link_end_2b +len(MACRO_END_2B)])
+    # Remove from the body
+    body = body[link_end_2b + len(MACRO_END_2B):]
+    return body, name, active_user
+
+def process_link_type_3(buffer, body, server_uri, auth):
+    """ Process the third type of link """
+    link_end_3a = body.find(MACRO_END_3A)
+    link_end_3b = body.find(MACRO_END_3B)
+    reference = body[:link_end_3a]
+    name, active_user = lookup_user(reference, server_uri, auth)
+    if active_user:
+        # Copy the entire macro over ...
+        buffer.write(MACRO_START)
+        buffer.write(body[:link_end_3b +len(MACRO_END_3B)])
+    # Remove from the body
+    body = body[link_end_3b + len(MACRO_END_3B):]
+    return body, name, active_user
+
+def which_link_type(body):
+    """ Which type of link have we found? """
+    link_end_1 = body.find(MACRO_END_1)
+    link_end_2a = body.find(MACRO_END_2A)
+    link_end_2b = body.find(MACRO_END_2B)
+    link_end_3a = body.find(MACRO_END_3A)
+    link_end_3b = body.find(MACRO_END_3B)
+    if link_end_1 == -1 and \
+        (link_end_2a == -1 and link_end_2b == -1) and \
+        (link_end_3a == -1 and link_end_3b == -1):
+        return None
+    links_found = []
+    body_length = len(body)
+    # Append the found positions, changing them from -1 to
+    # the length of the string if necessary, to make it
+    # easier to work out which comes first.
+    links_found.append(
+        link_end_1 if link_end_1 != -1 else body_length
+    )
+    links_found.append(
+        link_end_2a if link_end_2a != -1 else body_length
+    )
+    links_found.append(
+        link_end_3a if link_end_3a != -1 else body_length
+    )
+    return links_found.index(min(links_found))+1
+        
 
 def search_for_link(buffer, body, first_search, server_uri, auth):
     """ Find the next user link in the body """
@@ -122,33 +207,19 @@ def search_for_link(buffer, body, first_search, server_uri, auth):
     buffer.write(body[:link_start])
     # Remove that from the body.
     body = body[link_start + len(MACRO_START):]
-    # Find the end of the macro.
-    link_end_1 = body.find(MACRO_END_1)
-    link_end_2 = body.find(MACRO_END_2)
-    link_end_3 = body.find(MACRO_END_3)
-    if link_end_1 == -1 and (link_end_2 == -1 and link_end_3 == -1):
+    # Work out which link type we've found
+    link_type = which_link_type(body)
+    if link_type is None:
         print("Cannot find end of user link")
         return None
-    # If we have found multiple link ends, we need to use the
-    # one that is found first.
-    if link_end_1 != -1 and (link_end_2 != -1 and link_end_1 < link_end_2) or link_end_2 == -1:
-        reference = body[:link_end_1]
-        name, active_user = lookup_user(reference, server_uri, auth)
-        if active_user:
-            # Copy the entire macro over ...
-            buffer.write(MACRO_START)
-            buffer.write(body[:link_end_1 +len(MACRO_END_1)])
-        # Remove from the body
-        body = body[link_end_1 + len(MACRO_END_1):]
+    if link_type == 1:
+        body, name, active_user = process_link_type_1(buffer, body, server_uri, auth)
+    elif link_type == 2:
+        body, name, active_user = process_link_type_2(buffer, body, server_uri, auth)
+    elif link_type == 3:
+        body, name, active_user = process_link_type_3(buffer, body, server_uri, auth)
     else:
-        reference = body[:link_end_2]
-        name, active_user = lookup_user(reference, server_uri, auth)
-        if active_user:
-            # Copy the entire macro over ...
-            buffer.write(MACRO_START)
-            buffer.write(body[:link_end_3 +len(MACRO_END_3)])
-        # Remove from the body
-        body = body[link_end_3 + len(MACRO_END_3):]
+        sys.exit("Unexpected link type %s" % link_type)
     # Substitute a plain text reference
     if not active_user:
         print("Replacing user link for %s" % name)
@@ -171,7 +242,7 @@ def check_for_user_links(original_body, server_uri, auth):
 
 def check_page(space, page_name, page_link, server_uri, auth):
     """ Check this page for any user links """
-    print(page_name)
+    print(page_name, page_link)
     result = requests.get("%s?expand=body.storage,version" % page_link, auth=auth)
     if result.status_code != 200:
         print("Cannot retrieve '%s'" % page_name)
