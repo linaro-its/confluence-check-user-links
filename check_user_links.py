@@ -1,8 +1,8 @@
 """ Scan all of the pages in a space looking for user links """
 
+import argparse
 import json
 import os
-import re
 import sys
 from io import StringIO
 
@@ -224,6 +224,8 @@ def search_for_link(buffer, body, first_search, server_uri, auth):
     if not active_user:
         print("Replacing user link for %s" % name)
         buffer.write(name)
+    else:
+        print("User link found for active user (%s)" % name)
     return body
 
 def check_for_user_links(original_body, server_uri, auth):
@@ -240,7 +242,7 @@ def check_for_user_links(original_body, server_uri, auth):
     new_body = new_content.getvalue()
     return new_body, new_body != original_body
 
-def check_page(space, page_name, page_link, server_uri, auth):
+def check_page(space, page_name, page_link, server_uri, auth, dry_run):
     """ Check this page for any user links """
     print(page_name, page_link)
     result = requests.get("%s?expand=body.storage,version" % page_link, auth=auth)
@@ -268,18 +270,32 @@ def check_page(space, page_name, page_link, server_uri, auth):
             "number": new_version
         }
     }
-    print("Updating page content")
-    post_result = requests.put(page_link, auth=auth, json=data)
-    if post_result.status_code != 200:
-        print(post_result.text)
-        sys.exit("Update failed")
+    if dry_run:
+        print("[DRY-RUN] Page content has been changed; not saving")
+    else:
+        print("Saving updated page back to Confluence")
+        post_result = requests.put(page_link, auth=auth, json=data)
+        if post_result.status_code != 200:
+            print(post_result.text)
+            sys.exit("Update failed")
 
-load_config()
-server_auth = get_auth("server_user", "server_pw")
-page_types = get_pagetypes(CONFIG["server_uri"], server_auth, CONFIG["space_key"])
-for type in page_types:
-    pages = get_all_pages(CONFIG["server_uri"], server_auth, CONFIG["space_key"], type)
-    #
-    # Iterate through all of the pages to check them.
-    for page in pages:
-        check_page(CONFIG["space_key"], page, pages[page], CONFIG["server_uri"], server_auth)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+
+    load_config()
+    server_auth = get_auth("server_user", "server_pw")
+    page_types = get_pagetypes(CONFIG["server_uri"], server_auth, CONFIG["space_key"])
+    for type in page_types:
+        pages = get_all_pages(CONFIG["server_uri"], server_auth, CONFIG["space_key"], type)
+        #
+        # Iterate through all of the pages to check them.
+        for page in pages:
+            check_page(
+                CONFIG["space_key"],
+                page,
+                pages[page],
+                CONFIG["server_uri"],
+                server_auth,
+                args.dry_run)

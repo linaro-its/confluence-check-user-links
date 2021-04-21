@@ -14,5 +14,7 @@ NOTE! The credentials used must have access to all pages in the space otherwise 
 
 ``` bash
 pipenv install
-pipenv run python check_user_links.py
+pipenv run python check_user_links.py [--dry-run]
 ```
+
+The `--dry-run` option allows you to run the script without any changes being saved back to Confluence.
