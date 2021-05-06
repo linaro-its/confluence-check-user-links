@@ -267,7 +267,8 @@ def check_page(space, page_name, page_link, server_uri, auth, dry_run):
             }
         },
         "version": {
-            "number": new_version
+            "number": new_version,
+            "minorEdit": True # don't tell the watchers
         }
     }
     if dry_run:
